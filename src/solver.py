@@ -1,6 +1,5 @@
 import random
 
-
 from data import Chromosome, Customer, Solution, Route, euclid_distance, time_travel
 from config import Configuration
 

@@ -1,5 +1,7 @@
 import math
 import random
+import copy
+import heapq
 
 
 class Individual:
@@ -30,7 +32,7 @@ class Individual:
         pass
 
 
-class Channel:
+class Problem:
     num_customer: int
 
     unit_profit: list[int]
@@ -58,16 +60,16 @@ class Route:
 
 class Solution:
     truck_routes: list[Route]
-    drone_route: list[list[Route]]
+    drone_routes: list[list[Route]]
 
 
 def euclide_distance(x1, y1, x2, y2):
     return math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2))
 
 
-def travel_time(x1, y1, x2, y2, vehicle_type, channel):
+def travel_time(x1, y1, x2, y2, vehicle_type, problem):
     return euclide_distance(x1, y1, x2, y2) / (
-        channel.drone_speed if vehicle_type else channel.truck_speed
+        problem.drone_speed if vehicle_type else problem.truck_speed
     )
 
 
@@ -78,24 +80,24 @@ def check_duration(
     drone_sys_time,
     vehicle_type,
     vehicle_id,
-    channel,
+    problem,
 ):
     # check vehicle remaining time
     cur_to_next = travel_time(
-        channel.x[cur_customer_id],
-        channel.y[cur_customer_id],
-        channel.x[next_customer_id],
-        channel.y[next_customer_id],
+        problem.x[cur_customer_id],
+        problem.y[cur_customer_id],
+        problem.x[next_customer_id],
+        problem.y[next_customer_id],
         vehicle_type,
-        channel,
+        problem,
     )
     next_to_depot = travel_time(
-        channel.x[next_customer_id],
-        channel.y[next_customer_id],
-        channel.x[0],
-        channel.y[0],
+        problem.x[next_customer_id],
+        problem.y[next_customer_id],
+        problem.x[0],
+        problem.y[0],
         vehicle_type,
-        channel,
+        problem,
     )
 
     if rem_duration < cur_to_next + next_to_depot or (
@@ -106,15 +108,15 @@ def check_duration(
     return True, cur_to_next
 
 
-def decode(individual: Individual, channel: Channel):
+def decode1(individual: Individual, problem: Problem):
     chromosome = individual.chromosome  # chromosome = [(customer_id, volume)]
 
     if not chromosome:
         return
 
-    drone_sys_time = [channel.system_duration] * channel.num_drone
+    drone_sys_time = [problem.system_duration] * problem.num_drone
 
-    solution = None
+    solution = Solution()
 
     vehicle_id = 0
     vehicle_type = False
@@ -124,18 +126,18 @@ def decode(individual: Individual, channel: Channel):
     while i < len(chromosome):
         # update route identifier by (vehicle_id, vehicle_type) after each route
         if i != 0:
-            if not vehicle_type and vehicle_id == channel.num_truck:
+            if not vehicle_type and vehicle_id == problem.num_truck:
                 vehicle_id = 0
                 vehicle_type = True
-            elif vehicle_type and vehicle_id == channel.num_drone:
+            elif vehicle_type and vehicle_id == problem.num_drone:
                 vehicle_id = 0
 
         route = Route()
         rem_duration = (
-            channel.drone_duration if vehicle_type else channel.system_duration
+            problem.drone_duration if vehicle_type else problem.system_duration
         )
         rem_capacity = (
-            channel.drone_capacity if vehicle_type else channel.truck_capacity
+            problem.drone_capacity if vehicle_type else problem.truck_capacity
         )
 
         cur_customer_id = 0  # depot identifier
@@ -151,7 +153,7 @@ def decode(individual: Individual, channel: Channel):
                 drone_sys_time,
                 vehicle_type,
                 vehicle_id,
-                channel,
+                problem,
             )
             if feasible:
                 # take volume as remaining capacity or volume in currrent gene
@@ -160,40 +162,84 @@ def decode(individual: Individual, channel: Channel):
                 rem_capacity = rem_capacity - taken
 
                 rem_duration = rem_duration - cur_to_next
+                route.customers.append((next_customer_id, taken))
                 # reach vehicle's capacity
                 if rem_capacity == 0:
                     # there still remains freight in the current element
                     if volume > 0:
                         chromosome[i] = (next_customer_id, taken)
                         chromosome.insert(i + 1, (next_customer_id, volume))
+
+                    if vehicle_type:
+                        solution.drone_routes[vehicle_id].append(route)
+                    else:
+                        solution.truck_routes.append(route)
+
                     vehicle_id = vehicle_id + 1
                     break
-                route.customers.append((next_customer_id, taken))
                 cur_customer_id = next_customer_id
 
             else:  # can not go to next_customer_id because of remaining duration
                 # when drone is not at depot
                 if cur_customer_id != 0 and vehicle_type:
                     drone_sys_time[vehicle_id] -= travel_time(
-                        channel.x[cur_customer_id],
-                        channel.y[cur_customer_id],
-                        channel.x[0],
-                        channel.y[0],
+                        problem.x[cur_customer_id],
+                        problem.y[cur_customer_id],
+                        problem.x[0],
+                        problem.y[0],
                         vehicle_type,
-                        channel,
+                        problem,
                     )
+                    if vehicle_type:
+                        solution.drone_routes[vehicle_id].append(route)
+                    else:
+                        solution.truck_routes.append(route)
+
                 vehicle_id = vehicle_id + 1
                 break
 
     return solution
 
 
-def crossover1(channel: Channel, indi1: Individual, indi2: Individual):
-    pass
+def crossover1(problem: Problem, indi1: Individual, indi2: Individual):
+    if not indi1.chromosome or not indi2.chromosome:
+        return None
+
+    chro1 = indi1.chromosome
+    chro2 = indi2.chromosome
+
+    pivot = random.randint(0, min(len(chro1), len(chro2)) - 1)
+
+    new_indi1 = Individual()
+    new_indi1.chromosome = copy.deepcopy(chro1)
+    new_indi1.chromosome[:pivot] = chro2[:pivot]
+
+    new_indi2 = Individual()
+    new_indi2.chromosome = copy.deepcopy(chro2)
+    new_indi2.chromosome[:pivot] = chro1[:pivot]
+
+    return new_indi1, new_indi2
 
 
-def crossover2(channel: Channel, indi1: Individual, indi2: Individual):
-    pass
+def crossover2(problem: Problem, indi1: Individual, indi2: Individual):
+    if not indi1.chromosome or not indi2.chromosome:
+        return None
+
+    chro1 = indi1.chromosome
+    chro2 = indi2.chromosome
+
+    size = random.randint(1, min(len(chro1), len(chro2)))
+    pivot = random.randint(0, min(len(chro1), len(chro2)) - 1)
+
+    new_indi1 = Individual()
+    new_indi1.chromosome = copy.deepcopy(chro1)
+    new_indi1.chromosome[pivot : pivot + size] = chro2[pivot : pivot + size]
+
+    new_indi2 = Individual()
+    new_indi2.chromosome = copy.deepcopy(chro2)
+    new_indi2.chromosome[pivot : pivot + size] = chro1[pivot : pivot + size]
+
+    return new_indi1, new_indi2
 
 
 def mutation_operation1(indi: Individual):
@@ -209,29 +255,31 @@ def mutation_operation1(indi: Individual):
         min(chro_len - 1 - mutation_len, pivot1 + 2 * mutation_len),
     )
 
-    new_indi = Individual()
-    new_indi.chromosome = []
-    for i in range(0, pivot1):
-        new_indi.chromosome.append(indi.chromosome[i])
-
-    for i in range(pivot2, pivot2 + mutation_len):
-        new_indi.chromosome.append(indi.chromosome[i])
-
-    for i in range(pivot1 + mutation_len, pivot2):
-        new_indi.chromosome.append(indi.chromosome[i])
-
-    for i in range(pivot1, pivot1 + mutation_len):
-        new_indi.chromosome.append(indi.chromosome[i])
-
-    for i in range(pivot2 + mutation_len, chro_len):
-        new_indi.chromosome.append(indi.chromosome[i])
-
-    return new_indi
+    tmp_chro = indi.chromosome[pivot1 : pivot1 + mutation_len]
+    indi.chromosome[pivot1 : pivot1 + mutation_len] = indi.chromosome[
+        pivot2 : pivot2 + mutation_len
+    ]
+    indi.chromosome[pivot2 : pivot2 + mutation_len] = tmp_chro
 
 
-def mutation_operation2():
-    pass
+def mutation_operation2(indi: Individual):
+    if not indi.chromosome:
+        return
 
+    chro_len = len(indi.chromosome)
+    mutation_len = random.randint(1, max(1, (int)(chro_len / 10)))
 
-def crossover(channel: Channel, indi1: Individual, indi2: Individual):
-    pass
+    pivot1 = random.randint(0, chro_len - 1 - 2 * mutation_len)
+    pivot2 = random.randint(
+        pivot1 + mutation_len,
+        min(chro_len - 1 - mutation_len, pivot1 + 2 * mutation_len),
+    )
+
+    indi.chromosome[pivot1 : pivot1 + mutation_len].reverse()
+    indi.chromosome[pivot2 : pivot2 + mutation_len].reverse()
+
+    tmp_chro = indi.chromosome[pivot1 : pivot1 + mutation_len]
+    indi.chromosome[pivot1 : pivot1 + mutation_len] = indi.chromosome[
+        pivot2 : pivot2 + mutation_len
+    ]
+    indi.chromosome[pivot2 : pivot2 + mutation_len] = tmp_chro
