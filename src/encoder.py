@@ -270,45 +270,6 @@ def repair_dist_by_drone(vio_route, drone_routes, problem: Problem):
             vol = vio_route[i][1]
             drone_use = vol / problem.tilde_Q
 
-    while not problem.check_drone_time_constraint(drone_routes):
-        # find route for each drone
-        for i in range(problem.D):
-            route = []
-            tmp_cust = 0
-
-            while True:
-                nearest = None
-                dist = 0
-                for idx in range(len(vio_route)):
-                    if tmp_cust == vio_route[idx][0]:
-                        continue
-                    # check validity of selection with drone constraints
-                    tmp_route = [route[:], vio_route[idx]]
-                    tmp_drone_routes = deepcopy(drone_routes)
-                    tmp_drone_routes[i].append(tmp_route)
-
-                    if not problem.check_drone_time_constraint(
-                        tmp_drone_routes
-                    ) or not problem.check_drone_energy_constraint(tmp_route):
-                        continue
-
-                    if not nearest:
-                        nearest = idx
-                        dist = problem.tilde_d[tmp_cust][vio_route[idx][0]]
-                    elif dist > problem.tilde_d[tmp_cust][vio_route[idx][0]]:
-                        nearest = idx
-                        dist = problem.tilde_d[tmp_cust][vio_route[idx][0]]
-
-                if not nearest:
-                    break
-
-                if vio_route[nearest][1] == 0:
-                    vio_route.pop(nearest)
-
-                route.append((vio_route[nearest][0], 0))
-
-            drone_routes[i].append(route)
-
 
 def decode(indi: Individual, problem: Problem):
     chro = indi.chromosome
